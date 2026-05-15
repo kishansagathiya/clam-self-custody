@@ -117,10 +117,10 @@ impl Config {
             .or_else(|| default_dirs.as_ref().map(|d| d.join("payments.jsonl")))
             .ok_or(ConfigError::NoConfigDir)?;
 
-        let rpc_url = env::var("CLAM_RPC_URL").unwrap_or_else(|_| network.default_rpc_url().into());
+        let rpc_url = env::var("CLAM_RPC_URL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| network.default_rpc_url().into());
 
         let facilitator_url =
-            env::var("CLAM_FACILITATOR_URL").unwrap_or_else(|_| DEFAULT_FACILITATOR_URL.into());
+            env::var("CLAM_FACILITATOR_URL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| DEFAULT_FACILITATOR_URL.into());
 
         Ok(Self {
             keypair_path,
