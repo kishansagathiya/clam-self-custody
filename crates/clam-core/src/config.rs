@@ -72,7 +72,9 @@ impl FromStr for Network {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("CLAM_NETWORK '{0}' is not a supported Solana network (use 'devnet' or 'mainnet-beta')")]
+    #[error(
+        "CLAM_NETWORK '{0}' is not a supported Solana network (use 'devnet' or 'mainnet-beta')"
+    )]
     InvalidNetwork(String),
     #[error("unable to determine a default config directory; set CLAM_KEYPAIR_PATH and CLAM_LEDGER_PATH explicitly")]
     NoConfigDir,
@@ -123,7 +125,9 @@ impl Config {
         let facilitator_url =
             env::var("CLAM_FACILITATOR_URL").unwrap_or_else(|_| DEFAULT_FACILITATOR_URL.into());
 
-        let facilitator_api_key = env::var("CLAM_FACILITATOR_API_KEY").ok().filter(|s| !s.is_empty());
+        let facilitator_api_key = env::var("CLAM_FACILITATOR_API_KEY")
+            .ok()
+            .filter(|s| !s.is_empty());
 
         Ok(Self {
             keypair_path,
