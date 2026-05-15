@@ -1,3 +1,8 @@
+//! **WARNING:** The `PaymentSelector` implemented here relies on `tokio::task::block_in_place` 
+//! and `block_on` to bridge synchronous x402 selection with asynchronous user approval. 
+//! This requires a multi-threaded Tokio runtime to function without panicking or deadlocking.
+//! Please ensure your application initializes Tokio with `#[tokio::main]` or a `multi_thread` runtime.
+
 //! Policy-gated x402 client.
 //!
 //! Wraps [`x402_reqwest::X402Client`] with:
@@ -312,6 +317,11 @@ impl PaymentSelector for InteractiveSelector {
         };
 
         let approval = Arc::clone(&self.approval);
+        
+        debug_assert!(
+            tokio::runtime::Handle::try_current().is_ok(),
+            "PaymentSelector::select requires a multi-threaded tokio runtime context due to block_in_place"
+        );
         let decision = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move { (approval)(req).await })
         });
