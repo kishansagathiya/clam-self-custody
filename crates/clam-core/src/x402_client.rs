@@ -193,7 +193,7 @@ impl ClamX402Client {
         let mut builder = http
             .request(method.clone(), url.clone())
             .headers(header_map);
-        if let Some(body) = req.body.clone() {
+        if let Some(body) = req.body {
             builder = builder.body(body);
         }
 
