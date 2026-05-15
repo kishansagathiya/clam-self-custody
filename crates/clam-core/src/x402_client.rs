@@ -205,7 +205,13 @@ impl ClamX402Client {
             .get(X_PAYMENT_RESPONSE_HEADER)
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
-        let body = response.text().await.unwrap_or_default();
+        let body = match response.text().await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to read response body");
+                String::new()
+            }
+        };
 
         if status == StatusCode::PAYMENT_REQUIRED {
             return Err(X402ClientError::NoMatchingPayment {
