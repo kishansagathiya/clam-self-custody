@@ -37,8 +37,8 @@ pub const X_PAYMENT_RESPONSE_HEADER: &str = "x-payment-response";
 
 #[derive(Debug, Error)]
 pub enum X402ClientError {
-    #[error("invalid url: {0}")]
-    InvalidUrl(String),
+    #[error("invalid url '{0}': {1}")]
+    InvalidUrl(String, #[source] url::ParseError),
     #[error("unsupported HTTP method: {0}")]
     UnsupportedMethod(String),
     #[error("invalid header name '{name}': {source}")]
@@ -159,7 +159,7 @@ impl ClamX402Client {
         approval: ApprovalFn,
     ) -> Result<PayAndFetchOutcome, X402ClientError> {
         let url = reqwest::Url::parse(&req.url)
-            .map_err(|_| X402ClientError::InvalidUrl(req.url.clone()))?;
+            .map_err(|e| X402ClientError::InvalidUrl(req.url.clone(), e))?;
         let method = parse_method(&req.method)?;
         let header_map = build_header_map(&req.headers)?;
 
