@@ -71,6 +71,9 @@ codegen-units = 1
 opt-level = 3
 strip = "symbols"
 
+# TODO(#22): Remove this vendored patch when x402-chain-solana upgrades to
+# spl-token-2022 >= v11, which includes the upstream fix.
+#
 # spl-token-2022 v10.0.0 (pulled in transitively by x402-chain-solana 1.4.6) is
 # buggy against its own spl-token-group-interface ^0.7.1 peer dep: a recent
 # upstream API change replaced `OptionalNonZeroPubkey` with `MaybeNull<Pubkey>`
