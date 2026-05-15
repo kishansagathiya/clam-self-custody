@@ -203,8 +203,8 @@ async fn elicit_approval(
         .map(|r| format!(" Reason: {r}"))
         .unwrap_or_default();
     let message = format!(
-        "Approve x402 payment of {:.6} USDC ({}) to {} for {} {}?{}",
-        req.amount_usdc,
+        "Approve x402 payment of {} USDC ({}) to {} for {} {}?{}",
+        format!("{:.6}", req.amount_usdc).trim_end_matches('0').trim_end_matches('.'),
         req.network.as_str(),
         req.pay_to,
         req.method,
