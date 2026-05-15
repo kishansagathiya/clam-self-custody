@@ -119,7 +119,10 @@ impl Wallet {
 
         let usdc_balance = match rpc.get_token_account_balance(&self.usdc_ata).await {
             Ok(b) => b.ui_amount.unwrap_or(0.0),
-            Err(_) => 0.0,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to fetch USDC balance");
+                0.0
+            }
         };
 
         Ok(WalletInfo {
