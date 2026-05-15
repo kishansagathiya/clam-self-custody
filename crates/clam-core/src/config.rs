@@ -72,7 +72,9 @@ impl FromStr for Network {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("CLAM_NETWORK '{0}' is not a supported Solana network (use 'devnet' or 'mainnet-beta')")]
+    #[error(
+        "CLAM_NETWORK '{0}' is not a supported Solana network (use 'devnet' or 'mainnet-beta')"
+    )]
     InvalidNetwork(String),
     #[error("unable to determine a default config directory; set CLAM_KEYPAIR_PATH and CLAM_LEDGER_PATH explicitly")]
     NoConfigDir,
@@ -118,12 +120,19 @@ impl Config {
             .or_else(|| default_dirs.as_ref().map(|d| d.join("payments.jsonl")))
             .ok_or(ConfigError::NoConfigDir)?;
 
-        let rpc_url = env::var("CLAM_RPC_URL").unwrap_or_else(|_| network.default_rpc_url().into());
+        let rpc_url = env::var("CLAM_RPC_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| network.default_rpc_url().into());
 
-        let facilitator_url =
-            env::var("CLAM_FACILITATOR_URL").unwrap_or_else(|_| DEFAULT_FACILITATOR_URL.into());
+        let facilitator_url = env::var("CLAM_FACILITATOR_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| DEFAULT_FACILITATOR_URL.into());
 
-        let facilitator_api_key = env::var("CLAM_FACILITATOR_API_KEY").ok().filter(|s| !s.is_empty());
+        let facilitator_api_key = env::var("CLAM_FACILITATOR_API_KEY")
+            .ok()
+            .filter(|s| !s.is_empty());
 
         Ok(Self {
             keypair_path,
@@ -156,4 +165,76 @@ fn create_dir(p: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(p)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn test_empty_rpc_url_falls_back_to_default() {
+        env::set_var("CLAM_RPC_URL", "");
+        env::set_var("CLAM_NETWORK", "devnet");
+        env::set_var("CLAM_KEYPAIR_PATH", "/tmp/keypair.json");
+        env::set_var("CLAM_LEDGER_PATH", "/tmp/ledger.jsonl");
+
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.rpc_url, Network::Devnet.default_rpc_url());
+
+        env::remove_var("CLAM_RPC_URL");
+        env::remove_var("CLAM_NETWORK");
+        env::remove_var("CLAM_KEYPAIR_PATH");
+        env::remove_var("CLAM_LEDGER_PATH");
+    }
+
+    #[test]
+    fn test_empty_facilitator_url_falls_back_to_default() {
+        env::set_var("CLAM_FACILITATOR_URL", "");
+        env::set_var("CLAM_NETWORK", "devnet");
+        env::set_var("CLAM_KEYPAIR_PATH", "/tmp/keypair.json");
+        env::set_var("CLAM_LEDGER_PATH", "/tmp/ledger.jsonl");
+
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.facilitator_url, DEFAULT_FACILITATOR_URL);
+
+        env::remove_var("CLAM_FACILITATOR_URL");
+        env::remove_var("CLAM_NETWORK");
+        env::remove_var("CLAM_KEYPAIR_PATH");
+        env::remove_var("CLAM_LEDGER_PATH");
+    }
+
+    #[test]
+    fn test_non_empty_rpc_url_is_used() {
+        let custom_url = "https://custom.rpc.example.com";
+        env::set_var("CLAM_RPC_URL", custom_url);
+        env::set_var("CLAM_NETWORK", "devnet");
+        env::set_var("CLAM_KEYPAIR_PATH", "/tmp/keypair.json");
+        env::set_var("CLAM_LEDGER_PATH", "/tmp/ledger.jsonl");
+
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.rpc_url, custom_url);
+
+        env::remove_var("CLAM_RPC_URL");
+        env::remove_var("CLAM_NETWORK");
+        env::remove_var("CLAM_KEYPAIR_PATH");
+        env::remove_var("CLAM_LEDGER_PATH");
+    }
+
+    #[test]
+    fn test_non_empty_facilitator_url_is_used() {
+        let custom_url = "https://custom.facilitator.example.com";
+        env::set_var("CLAM_FACILITATOR_URL", custom_url);
+        env::set_var("CLAM_NETWORK", "devnet");
+        env::set_var("CLAM_KEYPAIR_PATH", "/tmp/keypair.json");
+        env::set_var("CLAM_LEDGER_PATH", "/tmp/ledger.jsonl");
+
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.facilitator_url, custom_url);
+
+        env::remove_var("CLAM_FACILITATOR_URL");
+        env::remove_var("CLAM_NETWORK");
+        env::remove_var("CLAM_KEYPAIR_PATH");
+        env::remove_var("CLAM_LEDGER_PATH");
+    }
 }

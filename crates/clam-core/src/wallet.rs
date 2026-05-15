@@ -70,11 +70,8 @@ impl Wallet {
             .parse::<Pubkey>()
             .map_err(|_| WalletError::InvalidPubkey(config.network.usdc_mint().into()))?;
 
-        let usdc_ata = get_associated_token_address_with_program_id(
-            &pubkey,
-            &usdc_mint,
-            &spl_token::ID,
-        );
+        let usdc_ata =
+            get_associated_token_address_with_program_id(&pubkey, &usdc_mint, &spl_token::ID);
 
         Ok(Self {
             keypair: Arc::new(keypair),

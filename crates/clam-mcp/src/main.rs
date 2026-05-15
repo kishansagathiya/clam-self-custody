@@ -43,7 +43,10 @@ async fn main() -> Result<()> {
     let x402 = ClamX402Client::new(wallet.clone(), config.clone(), ledger.clone());
     let server = server::ClamServer::new(wallet, ledger, x402);
 
-    let service = server.serve(stdio()).await.context("serving MCP over stdio")?;
+    let service = server
+        .serve(stdio())
+        .await
+        .context("serving MCP over stdio")?;
     let reason = service.waiting().await?;
     tracing::info!(?reason, "clam-mcp exiting");
     Ok(())

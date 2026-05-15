@@ -72,7 +72,9 @@ pub struct PayAndFetchParams {
     /// Hard cap on payable amount. If the server demands more, the call
     /// fails without prompting the user.
     #[serde(default)]
-    #[schemars(description = "Hard upper bound in USDC. If the server demands more, the call fails without prompting.")]
+    #[schemars(
+        description = "Hard upper bound in USDC. If the server demands more, the call fails without prompting."
+    )]
     pub max_usdc: Option<f64>,
     /// Free-form justification shown to the user in the approval prompt.
     #[serde(default)]
