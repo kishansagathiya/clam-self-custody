@@ -1,0 +1,41 @@
+name: AI Issue Fix
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-ai-fix-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage-and-fix:
+    name: Triage issue and open PR if real
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .github/automation/package-lock.json
+
+      - name: Install automation dependencies
+        working-directory: .github/automation
+        run: npm ci
+
+      - name: Triage issue and request fix
+        working-directory: .github/automation
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run issue-ai-fix

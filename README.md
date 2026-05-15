@@ -209,6 +209,26 @@ accept either type. The patch is applied via `[patch.crates-io]` in the
 workspace `Cargo.toml`. Once `x402-chain-solana` releases a version that
 pins v11+, the patch and vendor directory can be removed.
 
+## GitHub issue automation
+
+This repo includes a GitHub Actions workflow that runs when a new issue is
+opened. The workflow starts a Cursor Cloud Agent, asks it to verify whether the
+issue is real, and only starts a fixing run with PR creation enabled when the
+issue is actionable.
+
+To enable it:
+
+1. Create a Cursor API key from the Cursor dashboard. Use a user key or service
+   account that has access to this GitHub repo.
+2. Add the key as a GitHub Actions repository secret named `CURSOR_API_KEY`.
+3. Ensure the Cursor GitHub integration can create branches and pull requests
+   for `kishansagathiya/clam-self-custody`.
+
+The automation comments on the issue with either the created PR link or the
+reason no PR was opened. It is defined in
+`.github/workflows/issue-ai-fix.yml`, with the SDK runner in
+`.github/automation/issue-ai-fix.mjs`.
+
 ## Security model
 
 - The keypair lives on local disk under the user's chosen path. The MCP
