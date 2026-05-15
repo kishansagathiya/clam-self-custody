@@ -28,9 +28,6 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# Filesystem paths
-directories = "6"
-
 # MCP SDK. Note: `server` only pulls schemars as a *dep*; the `schemars`
 # **feature** must be enabled explicitly to expose Peer::elicit, which is
 # `#[cfg(all(feature = "schemars", feature = "elicitation"))]`.

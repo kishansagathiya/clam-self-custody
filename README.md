@@ -51,12 +51,12 @@ Deliberately omitted to preserve self-custody: `transfer`, `sign_transaction`,
 cargo build --release
 
 # 2. Create the config directory and a fresh keypair
-mkdir -p ~/.config/clam
-solana-keygen new --outfile ~/.config/clam/keypair.json --no-bip39-passphrase
+mkdir -p ~/.config/clam-self-custody
+solana-keygen new --outfile ~/.config/clam-self-custody/keypair.json --no-bip39-passphrase
 
 # 3. (Devnet) airdrop a little SOL for transaction fees and request test USDC
 solana airdrop 1 --url https://api.devnet.solana.com \
-    "$(solana-keygen pubkey ~/.config/clam/keypair.json)"
+    "$(solana-keygen pubkey ~/.config/clam-self-custody/keypair.json)"
 # Then mint devnet USDC from Circle's faucet: https://faucet.circle.com/
 ```
 
@@ -67,12 +67,12 @@ any of these at runtime.
 
 | Variable                  | Default                                                | Purpose                                  |
 | ------------------------- | ------------------------------------------------------ | ---------------------------------------- |
-| `CLAM_KEYPAIR_PATH`       | `~/.config/clam/keypair.json`                          | Path to a `solana-keygen` JSON keypair   |
+| `CLAM_KEYPAIR_PATH`       | `~/.config/clam-self-custody/keypair.json`             | Path to a `solana-keygen` JSON keypair   |
 | `CLAM_NETWORK`            | `devnet`                                               | `devnet` or `mainnet-beta`               |
 | `CLAM_RPC_URL`            | Public RPC for the chosen network                      | Custom Solana JSON-RPC endpoint          |
 | `CLAM_FACILITATOR_URL`    | `https://api.cdp.coinbase.com/platform/v2/x402`        | x402 facilitator base URL                |
 | `CLAM_FACILITATOR_API_KEY`| _(unset)_                                              | CDP API key (omit for keyless providers) |
-| `CLAM_LEDGER_PATH`        | `~/.config/clam/payments.jsonl`                        | Append-only JSONL payment log            |
+| `CLAM_LEDGER_PATH`        | `~/.config/clam-self-custody/payments.jsonl`           | Append-only JSONL payment log            |
 | `CLAM_LOG`                | `info`                                                 | `tracing_subscriber::EnvFilter` syntax   |
 
 ## Register with an MCP client

@@ -6,7 +6,6 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use directories::ProjectDirs;
 use thiserror::Error;
 
 /// USDC mint on Solana mainnet (Circle's canonical mint).
@@ -97,7 +96,9 @@ pub struct Config {
 
 impl Config {
     /// Builds a [`Config`] from environment variables, falling back to safe
-    /// defaults (devnet, public RPC, CDP facilitator, `~/.config/clam/`).
+    /// defaults (devnet, public RPC, CDP facilitator, `~/.config/clam-self-custody/`
+    /// on every platform — mirroring `solana-cli`'s `~/.config/solana/` convention
+    /// rather than the OS-idiomatic `directories` crate output).
     pub fn from_env() -> Result<Self, ConfigError> {
         let network = match env::var("CLAM_NETWORK") {
             Ok(s) => s.parse()?,
@@ -148,7 +149,21 @@ impl Config {
 }
 
 fn default_config_dir() -> Option<PathBuf> {
-    ProjectDirs::from("dev", "clam", "clam").map(|p| p.config_dir().to_path_buf())
+    home_dir().map(|h| h.join(".config").join("clam-self-custody"))
+}
+
+#[cfg(unix)]
+fn home_dir() -> Option<PathBuf> {
+    env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+}
+
+#[cfg(windows)]
+fn home_dir() -> Option<PathBuf> {
+    env::var_os("USERPROFILE")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
 }
 
 fn create_dir(p: &Path) -> std::io::Result<()> {
