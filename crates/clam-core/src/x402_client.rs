@@ -204,7 +204,29 @@ impl ClamX402Client {
             .headers()
             .get(X_PAYMENT_RESPONSE_HEADER)
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+            .and_then(|s| {
+                use base64::{engine::general_purpose::STANDARD as b64, Engine};
+                match b64.decode(s) {
+                    Ok(bytes) => {
+                        // The x402 SettleResponse is JSON encoded inside the base64 string
+                        #[derive(serde::Deserialize)]
+                        struct SettleResponse {
+                            tx_signature: String,
+                        }
+                        match serde_json::from_slice::<SettleResponse>(&bytes) {
+                            Ok(settle) => Some(settle.tx_signature),
+                            Err(e) => {
+                                tracing::warn!(error = %e, "failed to parse x-payment-response json");
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to base64 decode x-payment-response");
+                        None
+                    }
+                }
+            });
         let body = response.text().await.unwrap_or_default();
 
         if status == StatusCode::PAYMENT_REQUIRED {
