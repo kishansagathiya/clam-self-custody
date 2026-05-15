@@ -345,6 +345,11 @@ fn parse_method(s: &str) -> Result<Method, X402ClientError> {
     }
 }
 
+const BLOCKED_HEADERS: &[&str] = &[
+    "host", "authorization", "cookie", "proxy-authorization",
+    "proxy-connection", "set-cookie",
+];
+
 fn build_header_map(input: &HashMap<String, String>) -> Result<HeaderMap, X402ClientError> {
     let mut headers = HeaderMap::new();
     for (k, v) in input {
@@ -354,6 +359,10 @@ fn build_header_map(input: &HashMap<String, String>) -> Result<HeaderMap, X402Cl
                 source,
             }
         })?;
+        if BLOCKED_HEADERS.contains(&name.as_str()) {
+            tracing::warn!("Blocked injection of sensitive header: {}", name.as_str());
+            continue;
+        }
         let value = HeaderValue::from_str(v)
             .map_err(|_| X402ClientError::InvalidHeaderValue { name: k.clone() })?;
         headers.insert(name, value);
