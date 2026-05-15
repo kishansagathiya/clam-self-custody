@@ -5,6 +5,8 @@
 //! in memory (volumes for self-custody use are tiny — humans approve every
 //! entry interactively, so dozens per day at most).
 
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -118,7 +120,35 @@ impl Ledger {
 
         let reader = BufReader::new(file);
         let mut lines = reader.lines();
-        let mut entries: Vec<LedgerEntry> = Vec::new();
+        
+        // Use a min-heap to keep the top `limit` most recent entries.
+        // We order by ts ascending so the oldest (smallest) is at the top.
+        // Wait, BinaryHeap is a max-heap.
+        // We want to keep the N largest elements.
+        // If we use Reverse(ts), the smallest ts (oldest) will be at the root (max).
+        // Then we can pop the oldest when size > limit.
+        #[derive(Debug)]
+        struct HeapEntry(LedgerEntry);
+        
+        impl PartialEq for HeapEntry {
+            fn eq(&self, other: &Self) -> bool {
+                self.0.ts == other.0.ts
+            }
+        }
+        impl Eq for HeapEntry {}
+        impl PartialOrd for HeapEntry {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl Ord for HeapEntry {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                // Reverse ordering so the oldest is the "max" and gets popped first
+                other.0.ts.cmp(&self.0.ts)
+            }
+        }
+        
+        let mut heap: BinaryHeap<HeapEntry> = BinaryHeap::with_capacity(limit + 1);
 
         while let Some(line) = lines.next_line().await.map_err(|source| LedgerError::Io {
             path: self.path.display().to_string(),
@@ -131,7 +161,10 @@ impl Ledger {
             match serde_json::from_str::<LedgerEntry>(line) {
                 Ok(entry) => {
                     if since.is_none_or(|c| entry.ts >= c) {
-                        entries.push(entry);
+                        heap.push(HeapEntry(entry));
+                        if heap.len() > limit {
+                            heap.pop();
+                        }
                     }
                 }
                 Err(err) => {
@@ -140,8 +173,10 @@ impl Ledger {
             }
         }
 
-        entries.sort_by_key(|e| std::cmp::Reverse(e.ts));
-        entries.truncate(limit);
+        let mut entries: Vec<LedgerEntry> = heap.into_iter().map(|e| e.0).collect();
+        // Since we popped the oldest, the remaining are the most recent.
+        // BinaryHeap into_iter does not guarantee sorted order, so sort them.
+        entries.sort_by_key(|e| Reverse(e.ts));
         Ok(entries)
     }
 }
