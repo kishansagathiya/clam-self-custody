@@ -88,8 +88,6 @@ pub struct Config {
     pub rpc_url: String,
     /// x402 facilitator base URL.
     pub facilitator_url: String,
-    /// Optional API key for facilitators that require one (e.g. CDP).
-    pub facilitator_api_key: Option<String>,
     /// Append-only JSONL file recording every settled payment.
     pub ledger_path: PathBuf,
 }
@@ -124,14 +122,11 @@ impl Config {
         let facilitator_url =
             env::var("CLAM_FACILITATOR_URL").unwrap_or_else(|_| DEFAULT_FACILITATOR_URL.into());
 
-        let facilitator_api_key = env::var("CLAM_FACILITATOR_API_KEY").ok().filter(|s| !s.is_empty());
-
         Ok(Self {
             keypair_path,
             network,
             rpc_url,
             facilitator_url,
-            facilitator_api_key,
             ledger_path,
         })
     }

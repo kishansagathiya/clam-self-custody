@@ -71,7 +71,6 @@ any of these at runtime.
 | `CLAM_NETWORK`            | `devnet`                                               | `devnet` or `mainnet-beta`               |
 | `CLAM_RPC_URL`            | Public RPC for the chosen network                      | Custom Solana JSON-RPC endpoint          |
 | `CLAM_FACILITATOR_URL`    | `https://api.cdp.coinbase.com/platform/v2/x402`        | x402 facilitator base URL                |
-| `CLAM_FACILITATOR_API_KEY`| _(unset)_                                              | CDP API key (omit for keyless providers) |
 | `CLAM_LEDGER_PATH`        | `~/.config/clam-self-custody/payments.jsonl`           | Append-only JSONL payment log            |
 | `CLAM_LOG`                | `info`                                                 | `tracing_subscriber::EnvFilter` syntax   |
 
@@ -117,6 +116,109 @@ Once registered, restart the client and you should see `wallet_info`,
 > **Client must support MCP elicitation.** If your client doesn't,
 > `pay_and_fetch` will fail closed: the elicitation call returns an error and
 > the payment is never signed.
+
+## Test a mainnet call
+
+Once registered, you can run an end-to-end payment for real USDC. Do this
+**after** verifying the same flow on devnet (the default), and **only** once
+your keypair has a seed-phrase backup — losing
+`~/.config/clam-self-custody/keypair.json` on mainnet means losing the funds.
+
+### 1. Fund the wallet
+
+Get the address:
+
+```bash
+solana-keygen pubkey ~/.config/clam-self-custody/keypair.json
+```
+
+Send to it from any CEX or another wallet:
+
+- **SOL**: ~0.02 SOL for gas. Solana fees are fractions of a cent, so this
+  covers thousands of payments.
+- **USDC**: a small float, e.g. $1–$5. **Must be Solana-native USDC** (mint
+  `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`). If your exchange offers
+  USDC on multiple chains, pick **Solana**, not Ethereum/Polygon/Base — bridged
+  USDC variants will not be detected.
+
+### 2. Switch the client to mainnet
+
+In `~/.cursor/mcp.json` (or your client's equivalent), set `CLAM_NETWORK` and a
+dedicated RPC:
+
+```json
+{
+  "mcpServers": {
+    "clam": {
+      "command": "/absolute/path/to/target/release/clam-mcp",
+      "env": {
+        "CLAM_NETWORK": "mainnet-beta",
+        "CLAM_RPC_URL": "https://mainnet.helius-rpc.com/?api-key=YOUR_KEY"
+      }
+    }
+  }
+}
+```
+
+`CLAM_RPC_URL` is strongly recommended on mainnet: the public
+`api.mainnet-beta.solana.com` is rate-limited and routinely flakes during
+payment flows. Free tiers from Helius, QuickNode, or Triton work fine.
+Restart the MCP client after editing.
+
+### 3. Confirm balances
+
+Prompt the agent to read the wallet, e.g.:
+
+> Use the `clam` MCP server to show my wallet info.
+
+The agent invokes `wallet_info`. `network` should be `mainnet-beta` and
+`usdc_balance` should match what you deposited. If it shows `0`, the USDC
+transfer hasn't confirmed, or you sent a non-Solana variant — verify the
+address on <https://solscan.io/>.
+
+### 4. Make a tiny first payment
+
+Pick a cheap mainnet x402 endpoint and ask the agent to call it with a small
+`max_usdc` cap. A reliable example is [Corbits' paid Solana RPC](https://corbits.dev/),
+which charges per RPC call:
+
+> Use `clam.pay_and_fetch` to POST to `https://helius.api.corbits.dev/` with
+> headers `{"Content-Type": "application/json"}` and body
+> `{"jsonrpc":"2.0","id":1,"method":"getSlot"}`. Set `max_usdc` to `0.01`.
+> Reason: smoke-testing my clam wallet on mainnet.
+
+The flow:
+
+1. `clam-mcp` calls the URL, gets a `402 Payment Required`.
+2. Your MCP client pops an **elicitation prompt** with the exact recipient,
+   asset, amount, and your `reason`. Read it. Approve it.
+3. `clam-mcp` signs an SPL-token transfer of USDC, retries with the
+   `X-PAYMENT` header, and returns the JSON-RPC response plus a
+   `payment.tx_signature`.
+
+If the prompt amount exceeds `max_usdc`, the call short-circuits before any
+signing — the agent cannot raise the cap at runtime.
+
+### 5. Verify on chain
+
+Three places to cross-check:
+
+- The `payment.tx_signature` returned by `pay_and_fetch`.
+- Ask the agent to call `list_payments` — the newest entry should match.
+- Paste the signature into <https://solscan.io/> or
+  <https://x402scan.com/> — you should see a USDC `TransferChecked` from your
+  pubkey to the resource server's pubkey for the approved amount.
+
+### Finding more endpoints
+
+x402 on Solana is a young ecosystem; live directories are the best source:
+
+- <https://x402scan.com/> — explorer with recent paying calls and stats.
+- <https://back.zauthx402.com/api/directory> — JSON registry, filterable
+  by network.
+- <https://x402-list.com/> — curated category list.
+- <https://solana.com/developers/guides/getstarted/intro-to-x402> — Solana's
+  official intro, with current SDK + facilitator support.
 
 ## Tool reference
 
