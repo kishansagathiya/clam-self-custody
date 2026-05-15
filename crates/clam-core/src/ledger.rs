@@ -89,7 +89,7 @@ impl Ledger {
                 path: self.path.display().to_string(),
                 source,
             })?;
-        file.flush().await.map_err(|source| LedgerError::Io {
+        file.sync_all().await.map_err(|source| LedgerError::Io {
             path: self.path.display().to_string(),
             source,
         })?;
