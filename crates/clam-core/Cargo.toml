@@ -1,0 +1,35 @@
+[package]
+name = "clam-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Core library for Clam Self Custody: Solana wallet, x402 payment client, and payment ledger."
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+url.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+directories.workspace = true
+chrono.workspace = true
+base64.workspace = true
+num-bigint.workspace = true
+
+x402-types.workspace = true
+x402-chain-solana.workspace = true
+x402-reqwest.workspace = true
+reqwest-middleware.workspace = true
+
+solana-sdk.workspace = true
+solana-client.workspace = true
+solana-keypair.workspace = true
+solana-pubkey.workspace = true
+solana-commitment-config.workspace = true
+spl-token.workspace = true
+spl-associated-token-account.workspace = true

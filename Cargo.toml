@@ -1,0 +1,83 @@
+[workspace]
+resolver = "2"
+members = ["crates/clam-core", "crates/clam-mcp"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/kishansagathiya/clam-self-custody"
+rust-version = "1.88"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-std", "signal", "time"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+
+# HTTP - must match x402-reqwest's reqwest pin (0.13)
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
+url = "2"
+
+# Errors / tracing
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Filesystem paths
+directories = "6"
+
+# MCP SDK. Note: `server` only pulls schemars as a *dep*; the `schemars`
+# **feature** must be enabled explicitly to expose Peer::elicit, which is
+# `#[cfg(all(feature = "schemars", feature = "elicitation"))]`.
+rmcp = { version = "1.7", features = [
+    "server",
+    "macros",
+    "schemars",
+    "transport-io",
+    "elicitation",
+] }
+
+# x402 protocol
+x402-types = "1.4"
+x402-chain-solana = { version = "1.4", features = ["client"] }
+x402-reqwest = "1.4"
+reqwest-middleware = "0.5"
+
+# Solana — pinned to the 3.x line so the `RpcClient` type unifies with what
+# `x402-chain-solana 1.4.6` brings in transitively (it pins solana-* 3.x).
+solana-sdk = "3"
+solana-client = "3"
+solana-keypair = "3"
+solana-pubkey = "3"
+solana-commitment-config = "3"
+spl-token = "9"
+spl-associated-token-account = "8"
+
+# Numeric
+num-bigint = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+
+clam-core = { path = "crates/clam-core" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+strip = "symbols"
+
+# spl-token-2022 v10.0.0 (pulled in transitively by x402-chain-solana 1.4.6) is
+# buggy against its own spl-token-group-interface ^0.7.1 peer dep: a recent
+# upstream API change replaced `OptionalNonZeroPubkey` with `MaybeNull<Pubkey>`
+# in `TokenGroup::update_authority`, but v10's `processor.rs` still uses the
+# old type, so it fails to compile. We vendor v10 locally and patch
+# `check_update_authority` to accept either type via a generic bound.
+# Upstream fix is in v11, but we can't upgrade across the major boundary
+# without breaking x402-chain-solana's pin on ^10.
+[patch.crates-io]
+spl-token-2022 = { path = "vendor/spl-token-2022" }

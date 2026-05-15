@@ -1,0 +1,27 @@
+[package]
+name = "clam-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "MCP server letting agents pay for pay-per-use x402 APIs from a locally-held Solana wallet."
+
+[[bin]]
+name = "clam-mcp"
+path = "src/main.rs"
+
+[dependencies]
+clam-core.workspace = true
+
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono.workspace = true
+
+rmcp.workspace = true
