@@ -86,9 +86,7 @@ pub enum ApprovalDecision {
 /// Boxed async approval callback. Receives an [`ApprovalRequest`] describing
 /// the proposed payment and returns the user's decision.
 pub type ApprovalFn = Arc<
-    dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = ApprovalDecision> + Send>>
-        + Send
-        + Sync,
+    dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = ApprovalDecision> + Send>> + Send + Sync,
 >;
 
 /// Input to [`ClamX402Client::pay_and_fetch`].
@@ -288,10 +286,13 @@ impl PaymentSelector for InteractiveSelector {
             })
             .collect();
 
-        let chosen = matching
-            .into_iter()
-            .min_by(|a, b| a.amount.to_string().len().cmp(&b.amount.to_string().len())
-                .then_with(|| a.amount.to_string().cmp(&b.amount.to_string())))?;
+        let chosen = matching.into_iter().min_by(|a, b| {
+            a.amount
+                .to_string()
+                .len()
+                .cmp(&b.amount.to_string().len())
+                .then_with(|| a.amount.to_string().cmp(&b.amount.to_string()))
+        })?;
 
         let amount_usdc = base_units_to_usdc(&chosen.amount.to_string());
         if let Some(max) = self.max_usdc {
