@@ -214,7 +214,10 @@ impl ClamX402Client {
         }
 
         let payment_receipt = {
-            let guard = last_selection.lock().expect("selector mutex poisoned");
+            let guard = last_selection.lock().unwrap_or_else(|poisoned| {
+                tracing::warn!("selector mutex poisoned, recovering");
+                poisoned.into_inner()
+            });
             guard.clone()
         }
         .map(|sel| PaymentReceipt {
@@ -274,6 +277,9 @@ struct InteractiveSelector {
     url: String,
     reason: Option<String>,
     approval: ApprovalFn,
+    /// **Concurrency Note:** We use `std::sync::Mutex` instead of `tokio::sync::Mutex` 
+    /// because `PaymentSelector::select` is a synchronous trait method. 
+    /// Do not put `.await` points inside the lock guard, or it will deadlock!
     last_selection: Arc<Mutex<Option<SelectedPayment>>>,
 }
 
@@ -318,7 +324,10 @@ impl PaymentSelector for InteractiveSelector {
 
         match decision {
             ApprovalDecision::Approve => {
-                *self.last_selection.lock().expect("selector mutex poisoned") =
+                *self.last_selection.lock().unwrap_or_else(|poisoned| {
+                    tracing::warn!("selector mutex poisoned, recovering");
+                    poisoned.into_inner()
+                }) =
                     Some(SelectedPayment {
                         amount_usdc,
                         pay_to: chosen.pay_to.clone(),
