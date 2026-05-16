@@ -173,7 +173,7 @@ fn lamports_to_sol(lamports: u64) -> f64 {
 /// x402 scheme client API requires `Clone + 'static`. This newtype lets us
 /// satisfy that bound without copying the underlying key bytes.
 #[derive(Clone)]
-pub struct SharedKeypair(pub Arc<Keypair>);
+pub struct SharedKeypair(Arc<Keypair>);
 
 impl SharedKeypair {
     pub fn new(kp: Arc<Keypair>) -> Self {
