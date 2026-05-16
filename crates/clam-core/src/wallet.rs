@@ -70,6 +70,9 @@ impl Wallet {
             .parse::<Pubkey>()
             .map_err(|_| WalletError::InvalidPubkey(config.network.usdc_mint().into()))?;
 
+        // NOTE(#2): We explicitly use the legacy spl_token::ID here because Circle's USDC
+        // on Solana is minted under the original Token program. If we ever support
+        // Token-2022 stablecoins (e.g. PYUSD), this program ID should be made configurable.
         let usdc_ata = get_associated_token_address_with_program_id(
             &pubkey,
             &usdc_mint,
