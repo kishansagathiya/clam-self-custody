@@ -372,7 +372,14 @@ fn serialize_headers(map: &HeaderMap) -> HashMap<String, String> {
 /// upstream type is an arbitrary-precision unsigned integer.
 fn base_units_to_usdc(raw: &str) -> f64 {
     let raw = raw.trim();
-    let n: u128 = raw.parse().unwrap_or(0);
-    let divisor = 10u128.pow(USDC_DECIMALS as u32) as f64;
-    n as f64 / divisor
+    match raw.parse::<u128>() {
+        Ok(n) => {
+            let divisor = 10u128.pow(USDC_DECIMALS as u32) as f64;
+            n as f64 / divisor
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, raw_value = raw, "failed to parse base units to u128");
+            0.0
+        }
+    }
 }
