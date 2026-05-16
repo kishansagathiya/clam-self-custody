@@ -55,6 +55,8 @@ pub enum X402ClientError {
     HttpMiddleware(#[from] reqwest_middleware::Error),
     #[error("payment was required but no USDC-on-Solana option matched (max_usdc={max_usdc:?})")]
     NoMatchingPayment { max_usdc: Option<f64> },
+    #[error("payment exceeds max_usdc (amount_usdc={amount_usdc:?}, max_usdc={max_usdc:?})")]
+    ExceedsMaxUsdc { amount_usdc: f64, max_usdc: Option<f64> },
     #[error("user declined the payment")]
     UserDeclined,
     #[error("user cancelled the payment prompt")]
@@ -163,7 +165,7 @@ impl ClamX402Client {
         let method = parse_method(&req.method)?;
         let header_map = build_header_map(&req.headers)?;
 
-        let last_selection: Arc<Mutex<Option<SelectedPayment>>> = Arc::new(Mutex::new(None));
+        let last_selection: Arc<Mutex<SelectionStatus>> = Arc::new(Mutex::new(SelectionStatus::NoneYet));
 
         // V2SolanaExactClient's trait bounds require both signer and RPC client
         // to be `Clone + Send + Sync + 'static`. We satisfy this with `Arc`
@@ -208,14 +210,25 @@ impl ClamX402Client {
         let body = response.text().await.unwrap_or_default();
 
         if status == StatusCode::PAYMENT_REQUIRED {
-            return Err(X402ClientError::NoMatchingPayment {
-                max_usdc: req.max_usdc,
+            let status = {
+                let guard = last_selection.lock().expect("selector mutex poisoned");
+                guard.clone()
+            };
+            return Err(match status {
+                SelectionStatus::ExceedsMaxUsdc { amount_usdc } => X402ClientError::ExceedsMaxUsdc { amount_usdc, max_usdc: req.max_usdc },
+                SelectionStatus::Declined => X402ClientError::UserDeclined,
+                SelectionStatus::Cancelled => X402ClientError::UserCancelled,
+                _ => X402ClientError::NoMatchingPayment { max_usdc: req.max_usdc },
             });
         }
 
         let payment_receipt = {
             let guard = last_selection.lock().expect("selector mutex poisoned");
-            guard.clone()
+            if let SelectionStatus::Approved(sel) = guard.clone() {
+                Some(sel)
+            } else {
+                None
+            }
         }
         .map(|sel| PaymentReceipt {
             tx_signature: tx_signature.clone(),
@@ -257,6 +270,15 @@ impl ClamX402Client {
 }
 
 #[derive(Debug, Clone)]
+enum SelectionStatus {
+    NoneYet,
+    ExceedsMaxUsdc { amount_usdc: f64 },
+    Declined,
+    Cancelled,
+    Approved(SelectedPayment),
+}
+
+#[derive(Debug, Clone)]
 struct SelectedPayment {
     amount_usdc: f64,
     pay_to: String,
@@ -274,7 +296,7 @@ struct InteractiveSelector {
     url: String,
     reason: Option<String>,
     approval: ApprovalFn,
-    last_selection: Arc<Mutex<Option<SelectedPayment>>>,
+    last_selection: Arc<Mutex<SelectionStatus>>,
 }
 
 impl PaymentSelector for InteractiveSelector {
@@ -297,6 +319,7 @@ impl PaymentSelector for InteractiveSelector {
         if let Some(max) = self.max_usdc {
             if amount_usdc > max {
                 tracing::warn!(amount_usdc, max, "payment exceeds max_usdc; refusing");
+                *self.last_selection.lock().expect("selector mutex poisoned") = SelectionStatus::ExceedsMaxUsdc { amount_usdc };
                 return None;
             }
         }
@@ -319,14 +342,21 @@ impl PaymentSelector for InteractiveSelector {
         match decision {
             ApprovalDecision::Approve => {
                 *self.last_selection.lock().expect("selector mutex poisoned") =
-                    Some(SelectedPayment {
+                    SelectionStatus::Approved(SelectedPayment {
                         amount_usdc,
                         pay_to: chosen.pay_to.clone(),
                         network: self.network,
                     });
                 Some(chosen)
             }
-            ApprovalDecision::Reject | ApprovalDecision::Cancel => None,
+            ApprovalDecision::Reject => {
+                *self.last_selection.lock().expect("selector mutex poisoned") = SelectionStatus::Declined;
+                None
+            }
+            ApprovalDecision::Cancel => {
+                *self.last_selection.lock().expect("selector mutex poisoned") = SelectionStatus::Cancelled;
+                None
+            }
         }
     }
 }
