@@ -29,7 +29,7 @@ use x402_types::scheme::client::{PaymentCandidate, PaymentSelector};
 
 use crate::config::{Config, Network};
 use crate::ledger::{Ledger, LedgerEntry, PaymentStatus};
-use crate::wallet::{SharedKeypair, Wallet, USDC_DECIMALS};
+use crate::wallet::{SharedKeypair, USDC_DECIMALS, Wallet};
 
 /// Header set by an x402 resource server on a 200 response to communicate
 /// settlement metadata (base64-encoded `SettleResponse` per the x402 spec).
@@ -55,6 +55,12 @@ pub enum X402ClientError {
     HttpMiddleware(#[from] reqwest_middleware::Error),
     #[error("payment was required but no USDC-on-Solana option matched (max_usdc={max_usdc:?})")]
     NoMatchingPayment { max_usdc: Option<f64> },
+    #[error(
+        "payment was required but no USDC-on-Solana candidates matched (max_usdc={max_usdc:?})"
+    )]
+    NoMatchingCandidates { max_usdc: Option<f64> },
+    #[error("payment amount {amount_usdc} USDC exceeds max_usdc cap {max_usdc}")]
+    ExceedsMaxUsdc { amount_usdc: f64, max_usdc: f64 },
     #[error("user declined the payment")]
     UserDeclined,
     #[error("user cancelled the payment prompt")]
@@ -86,9 +92,7 @@ pub enum ApprovalDecision {
 /// Boxed async approval callback. Receives an [`ApprovalRequest`] describing
 /// the proposed payment and returns the user's decision.
 pub type ApprovalFn = Arc<
-    dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = ApprovalDecision> + Send>>
-        + Send
-        + Sync,
+    dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = ApprovalDecision> + Send>> + Send + Sync,
 >;
 
 /// Input to [`ClamX402Client::pay_and_fetch`].
@@ -164,6 +168,8 @@ impl ClamX402Client {
         let header_map = build_header_map(&req.headers)?;
 
         let last_selection: Arc<Mutex<Option<SelectedPayment>>> = Arc::new(Mutex::new(None));
+        let selection_failure: Arc<Mutex<Option<PaymentSelectionFailure>>> =
+            Arc::new(Mutex::new(None));
 
         // V2SolanaExactClient's trait bounds require both signer and RPC client
         // to be `Clone + Send + Sync + 'static`. We satisfy this with `Arc`
@@ -182,6 +188,7 @@ impl ClamX402Client {
             reason: req.reason.clone(),
             approval: Arc::clone(&approval),
             last_selection: Arc::clone(&last_selection),
+            selection_failure: Arc::clone(&selection_failure),
         };
 
         let x402_client = X402Client::new()
@@ -208,9 +215,13 @@ impl ClamX402Client {
         let body = response.text().await.unwrap_or_default();
 
         if status == StatusCode::PAYMENT_REQUIRED {
-            return Err(X402ClientError::NoMatchingPayment {
-                max_usdc: req.max_usdc,
-            });
+            let failure = {
+                let guard = selection_failure
+                    .lock()
+                    .expect("selector failure mutex poisoned");
+                guard.clone()
+            };
+            return Err(payment_required_error(failure, req.max_usdc));
         }
 
         let payment_receipt = {
@@ -263,6 +274,14 @@ struct SelectedPayment {
     network: Network,
 }
 
+#[derive(Debug, Clone)]
+enum PaymentSelectionFailure {
+    NoMatchingCandidates,
+    ExceedsMaxUsdc { amount_usdc: f64, max_usdc: f64 },
+    UserDeclined,
+    UserCancelled,
+}
+
 /// The custom [`PaymentSelector`] that gates payments behind a user-supplied
 /// async approval callback.
 struct InteractiveSelector {
@@ -275,10 +294,16 @@ struct InteractiveSelector {
     reason: Option<String>,
     approval: ApprovalFn,
     last_selection: Arc<Mutex<Option<SelectedPayment>>>,
+    selection_failure: Arc<Mutex<Option<PaymentSelectionFailure>>>,
 }
 
 impl PaymentSelector for InteractiveSelector {
     fn select<'a>(&self, candidates: &'a [PaymentCandidate]) -> Option<&'a PaymentCandidate> {
+        *self
+            .selection_failure
+            .lock()
+            .expect("selector failure mutex poisoned") = None;
+
         let matching: Vec<&PaymentCandidate> = candidates
             .iter()
             .filter(|c| {
@@ -288,15 +313,35 @@ impl PaymentSelector for InteractiveSelector {
             })
             .collect();
 
-        let chosen = matching
-            .into_iter()
-            .min_by(|a, b| a.amount.to_string().len().cmp(&b.amount.to_string().len())
-                .then_with(|| a.amount.to_string().cmp(&b.amount.to_string())))?;
+        if matching.is_empty() {
+            *self
+                .selection_failure
+                .lock()
+                .expect("selector failure mutex poisoned") =
+                Some(PaymentSelectionFailure::NoMatchingCandidates);
+            return None;
+        }
+
+        let chosen = matching.into_iter().min_by(|a, b| {
+            a.amount
+                .to_string()
+                .len()
+                .cmp(&b.amount.to_string().len())
+                .then_with(|| a.amount.to_string().cmp(&b.amount.to_string()))
+        })?;
 
         let amount_usdc = base_units_to_usdc(&chosen.amount.to_string());
         if let Some(max) = self.max_usdc {
             if amount_usdc > max {
                 tracing::warn!(amount_usdc, max, "payment exceeds max_usdc; refusing");
+                *self
+                    .selection_failure
+                    .lock()
+                    .expect("selector failure mutex poisoned") =
+                    Some(PaymentSelectionFailure::ExceedsMaxUsdc {
+                        amount_usdc,
+                        max_usdc: max,
+                    });
                 return None;
             }
         }
@@ -324,9 +369,48 @@ impl PaymentSelector for InteractiveSelector {
                         pay_to: chosen.pay_to.clone(),
                         network: self.network,
                     });
+                *self
+                    .selection_failure
+                    .lock()
+                    .expect("selector failure mutex poisoned") = None;
                 Some(chosen)
             }
-            ApprovalDecision::Reject | ApprovalDecision::Cancel => None,
+            ApprovalDecision::Reject => {
+                *self
+                    .selection_failure
+                    .lock()
+                    .expect("selector failure mutex poisoned") =
+                    Some(PaymentSelectionFailure::UserDeclined);
+                None
+            }
+            ApprovalDecision::Cancel => {
+                *self
+                    .selection_failure
+                    .lock()
+                    .expect("selector failure mutex poisoned") =
+                    Some(PaymentSelectionFailure::UserCancelled);
+                None
+            }
+        }
+    }
+}
+
+fn payment_required_error(
+    failure: Option<PaymentSelectionFailure>,
+    max_usdc: Option<f64>,
+) -> X402ClientError {
+    match failure {
+        Some(PaymentSelectionFailure::ExceedsMaxUsdc {
+            amount_usdc,
+            max_usdc,
+        }) => X402ClientError::ExceedsMaxUsdc {
+            amount_usdc,
+            max_usdc,
+        },
+        Some(PaymentSelectionFailure::UserDeclined) => X402ClientError::UserDeclined,
+        Some(PaymentSelectionFailure::UserCancelled) => X402ClientError::UserCancelled,
+        Some(PaymentSelectionFailure::NoMatchingCandidates) | None => {
+            X402ClientError::NoMatchingCandidates { max_usdc }
         }
     }
 }
@@ -375,4 +459,43 @@ fn base_units_to_usdc(raw: &str) -> f64 {
     let n: u128 = raw.parse().unwrap_or(0);
     let divisor = 10u128.pow(USDC_DECIMALS as u32) as f64;
     n as f64 / divisor
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn payment_required_error_preserves_selector_reason() {
+        assert!(matches!(
+            payment_required_error(Some(PaymentSelectionFailure::UserDeclined), Some(1.0)),
+            X402ClientError::UserDeclined
+        ));
+        assert!(matches!(
+            payment_required_error(Some(PaymentSelectionFailure::UserCancelled), Some(1.0)),
+            X402ClientError::UserCancelled
+        ));
+        assert!(matches!(
+            payment_required_error(
+                Some(PaymentSelectionFailure::ExceedsMaxUsdc {
+                    amount_usdc: 2.0,
+                    max_usdc: 1.0,
+                }),
+                Some(1.0),
+            ),
+            X402ClientError::ExceedsMaxUsdc {
+                amount_usdc: 2.0,
+                max_usdc: 1.0,
+            }
+        ));
+        assert!(matches!(
+            payment_required_error(
+                Some(PaymentSelectionFailure::NoMatchingCandidates),
+                Some(1.0)
+            ),
+            X402ClientError::NoMatchingCandidates {
+                max_usdc: Some(1.0)
+            }
+        ));
+    }
 }
