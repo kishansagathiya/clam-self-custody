@@ -25,11 +25,13 @@ use solana_client::nonblocking::rpc_client::RpcClient;
 use thiserror::Error;
 use x402_chain_solana::v2_solana_exact::client::V2SolanaExactClient;
 use x402_reqwest::{ReqwestWithPayments, ReqwestWithPaymentsBuild, X402Client};
+use x402_types::proto::v1::SettleResponse;
 use x402_types::scheme::client::{PaymentCandidate, PaymentSelector};
+use x402_types::util::Base64Bytes;
 
 use crate::config::{Config, Network};
 use crate::ledger::{Ledger, LedgerEntry, PaymentStatus};
-use crate::wallet::{SharedKeypair, Wallet, USDC_DECIMALS};
+use crate::wallet::{SharedKeypair, USDC_DECIMALS, Wallet};
 
 /// Header set by an x402 resource server on a 200 response to communicate
 /// settlement metadata (base64-encoded `SettleResponse` per the x402 spec).
@@ -86,9 +88,7 @@ pub enum ApprovalDecision {
 /// Boxed async approval callback. Receives an [`ApprovalRequest`] describing
 /// the proposed payment and returns the user's decision.
 pub type ApprovalFn = Arc<
-    dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = ApprovalDecision> + Send>>
-        + Send
-        + Sync,
+    dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = ApprovalDecision> + Send>> + Send + Sync,
 >;
 
 /// Input to [`ClamX402Client::pay_and_fetch`].
@@ -204,7 +204,7 @@ impl ClamX402Client {
             .headers()
             .get(X_PAYMENT_RESPONSE_HEADER)
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+            .and_then(parse_x_payment_response_tx_signature);
         let body = response.text().await.unwrap_or_default();
 
         if status == StatusCode::PAYMENT_REQUIRED {
@@ -288,10 +288,13 @@ impl PaymentSelector for InteractiveSelector {
             })
             .collect();
 
-        let chosen = matching
-            .into_iter()
-            .min_by(|a, b| a.amount.to_string().len().cmp(&b.amount.to_string().len())
-                .then_with(|| a.amount.to_string().cmp(&b.amount.to_string())))?;
+        let chosen = matching.into_iter().min_by(|a, b| {
+            a.amount
+                .to_string()
+                .len()
+                .cmp(&b.amount.to_string().len())
+                .then_with(|| a.amount.to_string().cmp(&b.amount.to_string()))
+        })?;
 
         let amount_usdc = base_units_to_usdc(&chosen.amount.to_string());
         if let Some(max) = self.max_usdc {
@@ -367,6 +370,28 @@ fn serialize_headers(map: &HeaderMap) -> HashMap<String, String> {
         .collect()
 }
 
+fn parse_x_payment_response_tx_signature(header_value: &str) -> Option<String> {
+    let decoded = match Base64Bytes::from(header_value.as_bytes()).decode() {
+        Ok(decoded) => decoded,
+        Err(error) => {
+            tracing::warn!(%error, "invalid x-payment-response base64; omitting tx signature");
+            return None;
+        }
+    };
+
+    match serde_json::from_slice::<SettleResponse>(&decoded) {
+        Ok(SettleResponse::Success { transaction, .. }) => Some(transaction),
+        Ok(SettleResponse::Error { reason, network }) => {
+            tracing::warn!(%reason, %network, "x-payment-response reported failed settlement; omitting tx signature");
+            None
+        }
+        Err(error) => {
+            tracing::warn!(%error, "invalid x-payment-response settle payload; omitting tx signature");
+            None
+        }
+    }
+}
+
 /// Converts a USDC base-unit amount (decimal string) into a UI-friendly f64.
 /// USDC has 6 decimals; we accept the amount as a string because the
 /// upstream type is an arbitrary-precision unsigned integer.
@@ -375,4 +400,43 @@ fn base_units_to_usdc(raw: &str) -> f64 {
     let n: u128 = raw.parse().unwrap_or(0);
     let divisor = 10u128.pow(USDC_DECIMALS as u32) as f64;
     n as f64 / divisor
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encode_settle_response(response: &SettleResponse) -> String {
+        let json = serde_json::to_vec(response).expect("settle response serializes");
+        Base64Bytes::encode(json).to_string()
+    }
+
+    #[test]
+    fn payment_response_extracts_transaction_from_encoded_success() {
+        let header = encode_settle_response(&SettleResponse::Success {
+            payer: "payer-wallet".to_string(),
+            transaction: "5u4hValidSolanaSignature".to_string(),
+            network: "solana:mainnet".to_string(),
+        });
+
+        assert_eq!(
+            parse_x_payment_response_tx_signature(&header),
+            Some("5u4hValidSolanaSignature".to_string())
+        );
+    }
+
+    #[test]
+    fn payment_response_omits_signature_for_encoded_error() {
+        let header = encode_settle_response(&SettleResponse::Error {
+            reason: "insufficient funds".to_string(),
+            network: "solana:mainnet".to_string(),
+        });
+
+        assert_eq!(parse_x_payment_response_tx_signature(&header), None);
+    }
+
+    #[test]
+    fn payment_response_omits_signature_for_invalid_header() {
+        assert_eq!(parse_x_payment_response_tx_signature("not base64"), None);
+    }
 }
